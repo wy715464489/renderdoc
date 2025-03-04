@@ -202,42 +202,42 @@ bool WrappedVulkan::CheckMemoryRequirements(const char *resourceName, ResourceId
   ResourceId memOrigId = GetResourceManager()->GetOriginalID(memId);
 
   VulkanCreationInfo::Memory &memInfo = m_CreationInfo.m_Memory[memId];
-  uint32_t bit = 1U << memInfo.memoryTypeIndex;
+  //uint32_t bit = 1U << memInfo.memoryTypeIndex;
 
   bool origInvalid = false;
 
-  // verify type
-  if((mrq.memoryTypeBits & bit) == 0)
-  {
-    rdcstr bitsString;
+  // // verify type
+  // if((mrq.memoryTypeBits & bit) == 0)
+  // {
+  //   rdcstr bitsString;
 
-    if((origMrq.memoryTypeBits & bit) == 0)
-    {
-      for(uint32_t i = 0; i < 32; i++)
-      {
-        if(origMrq.memoryTypeBits & (1U << i))
-          bitsString += StringFormat::Fmt("%s%u", bitsString.empty() ? "" : ", ", i);
-      }
+  //   if((origMrq.memoryTypeBits & bit) == 0)
+  //   {
+  //     for(uint32_t i = 0; i < 32; i++)
+  //     {
+  //       if(origMrq.memoryTypeBits & (1U << i))
+  //         bitsString += StringFormat::Fmt("%s%u", bitsString.empty() ? "" : ", ", i);
+  //     }
 
-      origInvalid = true;
-    }
-    else
-    {
-      for(uint32_t i = 0; i < 32; i++)
-      {
-        if(mrq.memoryTypeBits & (1U << i))
-          bitsString += StringFormat::Fmt("%s%u", bitsString.empty() ? "" : ", ", i);
-      }
-    }
+  //     origInvalid = true;
+  //   }
+  //   else
+  //   {
+  //     for(uint32_t i = 0; i < 32; i++)
+  //     {
+  //       if(mrq.memoryTypeBits & (1U << i))
+  //         bitsString += StringFormat::Fmt("%s%u", bitsString.empty() ? "" : ", ", i);
+  //     }
+  //   }
 
-    SET_ERROR_RESULT(
-        m_FailedReplayResult, ResultCode::APIHardwareUnsupported,
-        "Trying to bind %s to %s, but memory type is %u and only types %s are allowed.\n"
-        "\n%s",
-        resourceName, GetResourceDesc(memOrigId).name.c_str(), memInfo.memoryTypeIndex,
-        bitsString.c_str(), GetPhysDeviceCompatString(external, origInvalid).c_str());
-    return false;
-  }
+  //   SET_ERROR_RESULT(
+  //       m_FailedReplayResult, ResultCode::APIHardwareUnsupported,
+  //       "Trying to bind %s to %s, but memory type is %u and only types %s are allowed.\n"
+  //       "\n%s",
+  //       resourceName, GetResourceDesc(memOrigId).name.c_str(), memInfo.memoryTypeIndex,
+  //       bitsString.c_str(), GetPhysDeviceCompatString(external, origInvalid).c_str());
+  //   return false;
+  // }
 
   // verify offset alignment
   if((memoryOffset % mrq.alignment) != 0)
@@ -336,6 +336,13 @@ bool WrappedVulkan::Serialise_vkAllocateMemory(SerialiserType &ser, VkDevice dev
               .c_str());
       return false;
     }
+#if defined(__ANDROID__) || defined(ANDROID)
+    if (patched.memoryTypeIndex == 1)
+    {
+      // This is a hack to make sure that the memory type index is always 0
+      patched.memoryTypeIndex = 0;
+    }
+#endif
 
     VkResult ret = ObjDisp(device)->AllocateMemory(Unwrap(device), &patched, NULL, &mem);
 
@@ -2160,6 +2167,7 @@ bool WrappedVulkan::Serialise_vkCreateImage(SerialiserType &ser, VkDevice device
   }
 
   SERIALISE_ELEMENT(device);
+
   SERIALISE_ELEMENT_LOCAL(CreateInfo, *pCreateInfo).Important();
   SERIALISE_ELEMENT_OPT(pAllocator);
   SERIALISE_ELEMENT_LOCAL(Image, GetResID(*pImage)).TypedAs("VkImage"_lit);
