@@ -202,42 +202,47 @@ bool WrappedVulkan::CheckMemoryRequirements(const char *resourceName, ResourceId
   ResourceId memOrigId = GetResourceManager()->GetOriginalID(memId);
 
   VulkanCreationInfo::Memory &memInfo = m_CreationInfo.m_Memory[memId];
-  //uint32_t bit = 1U << memInfo.memoryTypeIndex;
+  uint32_t bit = 1U << memInfo.memoryTypeIndex;
 
   bool origInvalid = false;
 
-  // // verify type
-  // if((mrq.memoryTypeBits & bit) == 0)
-  // {
-  //   rdcstr bitsString;
+  // verify type
+  if((mrq.memoryTypeBits & bit) == 0)
+  {
+    rdcstr bitsString;
 
-  //   if((origMrq.memoryTypeBits & bit) == 0)
-  //   {
-  //     for(uint32_t i = 0; i < 32; i++)
-  //     {
-  //       if(origMrq.memoryTypeBits & (1U << i))
-  //         bitsString += StringFormat::Fmt("%s%u", bitsString.empty() ? "" : ", ", i);
-  //     }
+    if((origMrq.memoryTypeBits & bit) == 0)
+    {
+      for(uint32_t i = 0; i < 32; i++)
+      {
+        if(origMrq.memoryTypeBits & (1U << i))
+          bitsString += StringFormat::Fmt("%s%u", bitsString.empty() ? "" : ", ", i);
+      }
 
-  //     origInvalid = true;
-  //   }
-  //   else
-  //   {
-  //     for(uint32_t i = 0; i < 32; i++)
-  //     {
-  //       if(mrq.memoryTypeBits & (1U << i))
-  //         bitsString += StringFormat::Fmt("%s%u", bitsString.empty() ? "" : ", ", i);
-  //     }
-  //   }
+      origInvalid = true;
+    }
+    else
+    {
+      for(uint32_t i = 0; i < 32; i++)
+      {
+        if(mrq.memoryTypeBits & (1U << i))
+          bitsString += StringFormat::Fmt("%s%u", bitsString.empty() ? "" : ", ", i);
+      }
+    }
 
-  //   SET_ERROR_RESULT(
-  //       m_FailedReplayResult, ResultCode::APIHardwareUnsupported,
-  //       "Trying to bind %s to %s, but memory type is %u and only types %s are allowed.\n"
-  //       "\n%s",
-  //       resourceName, GetResourceDesc(memOrigId).name.c_str(), memInfo.memoryTypeIndex,
-  //       bitsString.c_str(), GetPhysDeviceCompatString(external, origInvalid).c_str());
-  //   return false;
-  // }
+    RDCWARN("Trying to bind %s to %s, but memory type is %u and only types %s are allowed.\n",
+            resourceName, GetResourceDesc(memOrigId).name.c_str(), memInfo.memoryTypeIndex,
+            bitsString.c_str());
+    return true;
+
+    // SET_ERROR_RESULT(
+    //     m_FailedReplayResult, ResultCode::APIHardwareUnsupported,
+    //     "Trying to bind %s to %s, but memory type is %u and only types %s are allowed.\n"
+    //     "\n%s",
+    //     resourceName, GetResourceDesc(memOrigId).name.c_str(), memInfo.memoryTypeIndex,
+    //     bitsString.c_str(), GetPhysDeviceCompatString(external, origInvalid).c_str());
+    // return false;
+  }
 
   // verify offset alignment
   if((memoryOffset % mrq.alignment) != 0)
@@ -272,13 +277,23 @@ bool WrappedVulkan::CheckMemoryRequirements(const char *resourceName, ResourceId
       size = origMrq.size;
     }
 
-    SET_ERROR_RESULT(m_FailedReplayResult, ResultCode::APIHardwareUnsupported,
-                     "Trying to bind %s to %s, but at memory offset 0x%llx the reported size of "
-                     "0x%llx won't fit the 0x%llx bytes of memory.\n"
-                     "\n%s",
-                     resourceName, GetResourceDesc(memOrigId).name.c_str(), memoryOffset, size,
-                     memInfo.allocSize, GetPhysDeviceCompatString(external, origInvalid).c_str());
-    return false;
+    RDCWARN(
+        "Trying to bind %s to %s, but at memory offset 0x%llx the reported size of 0x%llx "
+        "won't fit the 0x%llx bytes of memory. \n"
+        "mrq size 0x%llx, origMrq size 0x%llx\n"
+        "\n%s",
+        resourceName, GetResourceDesc(memOrigId).name.c_str(), memoryOffset, size, memInfo.allocSize,
+        mrq.size, origMrq.size, GetPhysDeviceCompatString(external, origInvalid).c_str());
+    return true;
+    // SET_ERROR_RESULT(m_FailedReplayResult, ResultCode::APIHardwareUnsupported,
+    //                  "Trying to bind %s to %s, but at memory offset 0x%llx the reported size of "
+    //                  "0x%llx won't fit the 0x%llx bytes of memory. \n"
+    //                  "mrq size 0x%llx, origMrq size 0x%llx\n"
+    //                  "\n%s",
+    //                  resourceName, GetResourceDesc(memOrigId).name.c_str(), memoryOffset, size,
+    //                  memInfo.allocSize, mrq.size, origMrq.size,
+    //                  GetPhysDeviceCompatString(external, origInvalid).c_str());
+    // return false;
   }
 
   return true;
@@ -315,11 +330,22 @@ bool WrappedVulkan::Serialise_vkAllocateMemory(SerialiserType &ser, VkDevice dev
       {
         VkMemoryRequirements mrq = {};
         ObjDisp(device)->GetImageMemoryRequirements(Unwrap(device), Unwrap(dedicated->image), &mrq);
-
+        RDCWARN(
+            "Dedicated memory for image %s, allocation size %llu, image size %llu\n"
+            "allocation memory type index %d, image memory type index %d",
+            ToStr(GetResID(dedicated->image)).c_str(), AllocateInfo.allocationSize, mrq.size,
+            AllocateInfo.memoryTypeIndex, mrq.memoryTypeBits);
         if(mrq.size != AllocateInfo.allocationSize)
         {
           RDCDEBUG("Removing dedicated allocation for incompatible size");
           RemoveNextStruct(&patched, VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO);
+          patched.allocationSize = mrq.size;
+        }
+        if(mrq.memoryTypeBits != (1U << AllocateInfo.memoryTypeIndex))
+        {
+          RDCDEBUG("Removing dedicated allocation for incompatible memory type");
+          RemoveNextStruct(&patched, VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO);
+          patched.memoryTypeIndex = Log2Floor(mrq.memoryTypeBits);
         }
       }
     }
@@ -336,13 +362,16 @@ bool WrappedVulkan::Serialise_vkAllocateMemory(SerialiserType &ser, VkDevice dev
               .c_str());
       return false;
     }
-#if defined(__ANDROID__) || defined(ANDROID)
-    if (patched.memoryTypeIndex == 1)
-    {
-      // This is a hack to make sure that the memory type index is always 0
-      patched.memoryTypeIndex = 0;
-    }
-#endif
+
+    // if(external && patched.memoryTypeIndex == 1)
+    // {
+    //   // This is a hack to make sure that the memory type index is always 0
+    //   patched.memoryTypeIndex = 0;
+    //   RDCWARN("Memory resource has memory type index 1, changing to 0, allocation size %llu",
+    //           patched.allocationSize);
+    // }
+    RDCLOG("Memory resource type index %d, Allocation size is %llx", patched.memoryTypeIndex,
+           patched.allocationSize);
 
     VkResult ret = ObjDisp(device)->AllocateMemory(Unwrap(device), &patched, NULL, &mem);
 
@@ -1471,6 +1500,8 @@ bool WrappedVulkan::Serialise_vkBindBufferMemory(SerialiserType &ser, VkDevice d
 
     VkMemoryRequirements mrq = {};
     ObjDisp(device)->GetBufferMemoryRequirements(Unwrap(device), Unwrap(buffer), &mrq);
+    // 打印buffer size
+    RDCWARN("buffer id %d, buffer size:%d", GetResID(buffer), mrq.size);
 
     bool ok = CheckMemoryRequirements(GetResourceDesc(resOrigId).name.c_str(), GetResID(memory),
                                       memoryOffset, mrq, bufInfo.external, bufInfo.mrq);
@@ -1598,6 +1629,9 @@ bool WrappedVulkan::Serialise_vkBindImageMemory(SerialiserType &ser, VkDevice de
     ObjDisp(device)->GetImageMemoryRequirements(Unwrap(device), Unwrap(image), &mrq);
 
     VulkanCreationInfo::Image &imgInfo = m_CreationInfo.m_Image[GetResID(image)];
+    // 打印image width height
+    RDCWARN("image id %d, image width:%d, height:%d", GetResID(image), imgInfo.extent.width,
+            imgInfo.extent.height);
 
     bool ok = CheckMemoryRequirements(GetResourceDesc(resOrigId).name.c_str(), GetResID(memory),
                                       memoryOffset, mrq, imgInfo.external, imgInfo.mrq);
@@ -2968,6 +3002,10 @@ bool WrappedVulkan::Serialise_vkBindBufferMemory2(SerialiserType &ser, VkDevice 
 
       ObjDisp(device)->GetBufferMemoryRequirements(Unwrap(device), Unwrap(bindInfo.buffer), &mrqs[i]);
 
+      // 打印buffer info
+      RDCWARN("Buffer %llu: size %llu, alignment %llu, memoryTypeBits %u", resOrigId, mrqs[i].size,
+              mrqs[i].alignment, mrqs[i].memoryTypeBits);
+
       bool ok = CheckMemoryRequirements(GetResourceDesc(resOrigId).name.c_str(),
                                         GetResID(bindInfo.memory), bindInfo.memoryOffset, mrqs[i],
                                         bufInfo.external, bufInfo.mrq);
@@ -3118,6 +3156,13 @@ bool WrappedVulkan::Serialise_vkBindImageMemory2(SerialiserType &ser, VkDevice d
 
       VkMemoryRequirements mrq = {};
       ObjDisp(device)->GetImageMemoryRequirements(Unwrap(device), Unwrap(bindInfo.image), &mrq);
+      // 打印image info
+      RDCWARN(
+          "Image %llu: size 0x%llx, alignment %llu, memoryTypeBits %u, width %u, height %u, "
+          "depth %u, mipLevels %u, arrayLayers %u, samples %u, format %u",
+          resOrigId, mrq.size, mrq.alignment, mrq.memoryTypeBits, imgInfo.extent.width,
+          imgInfo.extent.height, imgInfo.extent.depth, imgInfo.mipLevels, imgInfo.arrayLayers,
+          imgInfo.samples, imgInfo.format);
 
       bool ok = CheckMemoryRequirements(GetResourceDesc(resOrigId).name.c_str(),
                                         GetResID(bindInfo.memory), bindInfo.memoryOffset, mrq,

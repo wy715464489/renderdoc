@@ -330,11 +330,11 @@ void rdclogprint_int(LogType type, const char *fullMsg, const char *msg)
 #if ENABLED(OUTPUT_LOG_TO_DEBUG_OUT)
   OSUtility::WriteOutput(OSUtility::Output_DebugMon, fullMsg);
 #endif
-#if ENABLED(OUTPUT_LOG_TO_STDOUT)
+//#if ENABLED(OUTPUT_LOG_TO_STDOUT)
   // don't output debug messages to stdout/stderr
-  if(type != LogType::Debug && log_output_enabled)
+  if(type != LogType::Debug && true)
     OSUtility::WriteOutput(OSUtility::Output_StdOut, msg);
-#endif
+//#endif
 #if ENABLED(OUTPUT_LOG_TO_STDERR)
   // don't output debug messages to stdout/stderr
   if(type != LogType::Debug && log_output_enabled)
